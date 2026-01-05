@@ -15,3 +15,6 @@ console.log(octNum);
 //hexadecimal type variable
 var hexNum = 0x2A; // hexadecimal for 42
 console.log(hexNum);
+
+//NaN type variable
+console.log(NaN == NaN) // false
