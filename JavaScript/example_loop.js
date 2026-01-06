@@ -1,17 +1,24 @@
-n = 10;
-for(var i = 0; i < n; i++) {
+// Example1: var in for-loop leaks to outer scope
+console.log("Example1:");
+
+const n = 10;
+
+for (var i = 0; i < n; i++) {
   // body
 }
 console.log(i);
+
+// Example2: let in for-loop is block-scoped
+console.log("Example2:");
 
 for (let j = 0; j < n; j++) {
   // body
 }
 // console.log(j); // ReferenceError: j is not defined
 
-// while (condition) {
-//   // body
-// }
+while (false) {
+  // body
+}
 
 let user = {
     name: "John",
@@ -19,15 +26,9 @@ let user = {
     isAdmin: true
 };
 
+// Example3: for...in iterates object keys
+console.log("Example3:");
+
 for (const key in user) {
     console.log(key);
-}
-
-var conprehensive_test_num =10;
-conprehensive_test_fun();
-function conprehensive_test_fun()
-{
-    console.log(conprehensive_test_num);
-    var conprehensive_test_num=20;
-    console.log(conprehensive_test_num);
 }
