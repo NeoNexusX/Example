@@ -1,6 +1,6 @@
-from pryut.test import test_sum_as_string
+from pryut.read_batch_martrix import test_read_batch_martrix
 
 
 if __name__ == "__main__":
-    test_sum_as_string()
+    test_read_batch_martrix()
     print("Test passed!")
