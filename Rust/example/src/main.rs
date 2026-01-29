@@ -1,42 +1,73 @@
-use imzml::{ImzML, ImzMLReader};
-use rayon::ThreadPoolBuilder;
+use mzdata::io::imzml::reader::ImzMLReader;
+use mzdata::prelude::*;
 use rayon::prelude::*;
 use std::time::Instant;
 
 fn main() {
-    // 指定线程数，例如 8
-    let _pool = ThreadPoolBuilder::new()
-        .num_threads(10)
-        .build_global()
-        .expect("build rayon pool");
     let data_path: &str = "/Users/neo/Desktop/data/example.imzML";
-    read_imzml(data_path);
+    // 设置想要使用的线程数量
+    let num_threads = 4;
+    read_imzml(data_path, num_threads);
 }
 
-fn read_imzml(data_path: &str) {
-    let parser = ImzMLReader::from_path(data_path).unwrap();
+fn read_imzml(data_path: &str, num_threads: usize) {
+    let func_start_time = Instant::now();
+    // 1. 初始化读取器以获取谱图总数
+    // 在主线程打开一次以获取元数据和总数
+    let init_reader = ImzMLReader::open_path(data_path).expect("Failed to open imzML file");
+    let total_spectra = init_reader.len();
+    println!("Total spectra to process: {}", total_spectra);
 
-    for error in parser.errors() {
-        println!("{:?}", error);
-    }
+    // 2. 创建局部线程池
+    let pool = rayon::ThreadPoolBuilder::new()
+        .num_threads(num_threads)
+        .build()
+        .expect("Failed to build thread pool");
 
-    let imzml: ImzML<_> = parser.into();
-    println!("{:#?}", imzml.width());
-    println!("{:#?}", imzml.height());
-    println!("{:#?}", imzml.num_spectra());
+    // 3. 在指定线程池中执行并发读取与聚合
+    pool.install(|| {
+        // 获取当前局部线程池的实际线程数
+        let effective_threads = rayon::current_num_threads();
+        // 计算每个块的大小，向上取整
+        let chunk_size = (total_spectra + effective_threads - 1) / effective_threads;
 
-    // 创建一个数组来存储谱数据
-    let spectra_data: Vec<_> = imzml
-        .spectra()
-        .par_bridge()
-        .filter_map(|spectrum_access| {
-            spectrum_access
-                .intensity_array()
-                .map(|array| array.as_f64())
-        })
-        .collect();
+        // 生成每个线程需处理的索引范围 (Start..End)
+        let ranges: Vec<_> = (0..total_spectra)
+            .step_by(chunk_size)
+            .map(|start| start..std::cmp::min(start + chunk_size, total_spectra))
+            .collect();
 
-    println!("spectra_data len = {}", spectra_data.len());
+        println!("Splitting work into {} chunks for {} threads", ranges.len(), effective_threads);
+
+        let start_time = Instant::now();
+
+        // 使用 par_iter 并行处理每个范围
+        let spectra: Vec<_> = ranges.par_iter()
+            .map(|range| {
+                // 线程安全性：在每个任务中创建一个新的读取器实例。
+                // 这样每个线程拥有独立的文件句柄，无需 Mutex 锁住同一个 Reader，避免了 IO 瓶颈。
+                let mut reader = ImzMLReader::open_path(data_path).expect("Failed to open reader in thread");
+                
+                let mut chunk_data = Vec::with_capacity(range.len());
+                
+                for i in range.clone() {
+                    // 读取指定索引的谱图
+                    if let Some(spec) = reader.get_spectrum_by_index(i) {
+                        // 确保加载强度数据，这里我们将读取到的完整 Spectrum 对象收集起来
+                        chunk_data.push(spec);
+                    }
+                }
+                chunk_data
+            })
+            // 将各个线程返回的 Vec<Spectrum> 扁平化为一个大的 Vec<Spectrum>
+            .flatten()
+            // Rayon 的 collect 会自动处理并发写入的聚合
+            .collect();
+
+        let duration = start_time.elapsed();
+        println!("Successfully read {} spectra in {:.2?}", spectra.len(), duration);
+    });
+    println!("read_imzml function executed in {:.2?}", func_start_time.elapsed());
 }
 
 #[cfg(test)]
@@ -46,9 +77,7 @@ mod tests {
     #[test]
     fn test_read_imzml_runtime() {
         let data_path: &str = "/Users/neo/Desktop/data/example.imzML";
-        let start_time = Instant::now();
-        read_imzml(data_path);
-        let duration = start_time.elapsed();
-        println!("read_imzml took: {:?}", duration);
+        // 测试使用 2 个线程
+        read_imzml(data_path, 8);
     }
 }
